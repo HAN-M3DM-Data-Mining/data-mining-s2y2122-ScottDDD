@@ -1,0 +1,135 @@
+---
+title: "Assigment - Naive Bayes DIY - Authored"
+author:
+  - Scott Erkan - 617570 - Author
+  - Emiel Maters - Reviewer
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+   html_notebook:
+    toc: true
+    toc_depth: 2
+---
+
+```{r}
+library(tidyverse)
+library(tm)
+library(caret)
+library(wordcloud)
+library(e1071)
+```
+
+## Business Understanding
+
+Nowadays everyone is able to access the internet very easily, and it's just as easy to share information with others. Whether this information is factual or simply bullshit. Today we will use the Naive Bayes Classifier (a classifier is a machine learning model that is used to discriminate different objects based on certain features) in order to create a model that is able to identify fake news articles.
+
+Alright, let's get right into it by importing our data and creating a data frame.
+
+## Data Understanding
+
+```{r}
+url <- "https://raw.githubusercontent.com/HAN-M3DM-Data-Mining/assignments/master/datasets/NB-fakenews.csv"
+rawDF <- read.csv(url)
+head(rawDF)
+```
+
+Now that we have our data frame we have to make sure the labels are seen as two clear categories: "fake" and "confirmed" (meaning factual).
+
+```{r}
+# Firstly, we convert the characters into a factor variable. This can be done using 1 and 2. The class function should show us that it is now indeed a factor variable.
+
+rawDF$type <- rawDF$type %>% factor %>% relevel("1")
+class(rawDF$type)
+
+rawDF$type <- rawDF$type %>% factor %>% relevel("0")
+class(rawDF$type) 
+
+# Secondly, we assign the categories.
+
+fake <- rawDF %>% filter(type == "1")
+confirmed <- rawDF %>% filter(type == "0")
+
+# Thirdly, we can make a quick visualization using word clouds. Maybe we can already notice a difference in word usage in fake and confirmed news.
+
+wordcloud(fake$text, max.words = 20, scale = c(4, 0.8), colors= c("indianred1","indianred2","indianred3","indianred"))
+wordcloud(confirmed$text, max.words = 20, scale = c(4, 0.8), colors= c("lightsteelblue1","lightsteelblue2","lightsteelblue3","lightsteelblue"))
+
+```
+
+## Data Preparation
+
+Here we create a corpus (a collection of text documents) after which we also eliminate all items from our data set that will add little to no information to our model. 
+
+```{r}
+rawCorpus <- Corpus(VectorSource(rawDF$text))
+inspect(rawCorpus[1:3])
+
+cleanCorpus <- rawCorpus %>% tm_map(tolower) %>% tm_map(removeNumbers)
+cleanCorpus <- cleanCorpus %>% tm_map(tolower) %>% tm_map(removeWords, stopwords()) %>% tm_map(removePunctuation)
+cleanCorpus <- cleanCorpus %>% tm_map(stripWhitespace)
+```
+
+Time to check how the clean data looks compared to the raw data after our changes.
+```{r}
+tribble(Raw = rawCorpus$content[1:3], Clean = cleanCorpus$content[1:3])
+```
+We can also transform the messages into a matrix.
+```{r}
+cleanDTM <- cleanCorpus %>% DocumentTermMatrix
+inspect(cleanDTM)
+```
+Before we start modeling we need to split our data into test- and training sets.
+```{r}
+set.seed(1234)
+trainIndex <- createDataPartition(rawDF$label, p = .75, 
+                                  list = TRUE, 
+                                  times = 1)
+head(trainIndex)
+
+# Apply split indices to DF
+trainDF <- rawDF[trainIndex, ]
+testDF <- rawDF[-trainIndex, ]
+
+# Apply split indices to Corpus
+trainCorpus <- cleanCorpus[trainIndex]
+testCorpus <- cleanCorpus[-trainIndex]
+
+# Apply split indices to DTM
+trainDTM <- cleanDTM[trainIndex, ]
+testDTM <- cleanDTM[-trainIndex, ]
+```
+
+Now we reduce features to save on computation time. 
+```{r}
+freqWords <- trainDTM %>% findFreqTerms(1)
+trainDTM <-  MatrixDocumentTerm(trainCorpus, list(dictionary = freqWords))
+testDTM <-  MatrixDocumentTerm(testCorpus, list(dictionary = freqWords))
+```
+
+"We will transform the counts into a factor that simply indicates whether the word appears in the document or not. We’ll first build our own function for this and then apply it to each column in the DTM."
+```{r}
+convert_counts <- function(x) {
+  x <- ifelse(x > 0, 1, 0) %>% factor(levels = c(0,1), labels = c("No", "Yes"))
+}
+
+nColsDTM <- dim(trainDTM)[2]
+trainDTM <- apply(trainDTM, MARGIN = 2, convert_counts)
+testDTM <- apply(testDTM, MARGIN = 2, convert_counts)
+
+head(trainDTM[,1:10])
+```
+
+## Modeling
+
+It's modeling time!
+```{r}
+nbayesModel <- naiveBayes(trainDTM, trainDF$label, laplace = 1)
+predVec <- predict(naiveBayes, testDTM)
+confusionMatrix(predVec, testDF$label, positive = "fake", dnn = c("Prediction", "True"))
+```
+
+## Evaluation and Deployment
+
+The model has an accuracy of around 78%. This is not bad, though somewhere above the 90% would be ideal. Multiple word frequencies were tested (5, 100, 200, 5000 & 7000) without significant changes in accuracy. The model can be used for solving multi-class prediction problems. It is relatively fast and does not require a lot of training data, but it assumes that features are independent of each other. For this reason it is not suited for all situations, and depending on the data more complex algorithms should be considered. 
+
+## Reviewer adds suggestions for improving the model
+
