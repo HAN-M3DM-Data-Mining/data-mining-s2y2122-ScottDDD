@@ -1,15 +1,18 @@
 ---
 title: "Assigment - kNN DIY"
 author:
-  - name author here - Author
-  - name reviewer here - Reviewer
+- "name author here - Author"
+- "name reviewer here - Reviewer"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
-   html_notebook:
-    toc: true
+  html_document:
+    toc: yes
+    toc_depth: '2'
+    df_print: paged
+  html_notebook:
+    toc: yes
     toc_depth: 2
 ---
-
 
 ```{r}
 library(tidyverse)
@@ -18,24 +21,28 @@ library(class)
 library(caret)
 ```
 
----
+------------------------------------------------------------------------
 
-Choose a suitable dataset from [this](https://github.com/HAN-M3DM-Data-Mining/assignments/tree/master/datasets) folder and train  your own kNN model. Follow all the steps from the CRISP-DM model.
-
+Choose a suitable dataset from [this](https://github.com/HAN-M3DM-Data-Mining/assignments/tree/master/datasets) folder and train your own kNN model. Follow all the steps from the CRISP-DM model.
 
 ## Business Understanding
+
 text and code here
 
 ## Data Understanding
+
 text and code here
 
 ## Data Preparation
+
 text and code here
 
 ## Modeling
+
 text and code here
 
 ## Evaluation and Deployment
+
 text and code here
 
 reviewer adds suggestions for improving the model
