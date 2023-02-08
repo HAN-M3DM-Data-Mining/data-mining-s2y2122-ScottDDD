@@ -1,0 +1,227 @@
+---
+title: "Assigment - kNN DIY - error"
+author:
+- "Emiel Maters - 634735 - Author"
+- "Scott Erkan - 617570 - Reviewer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: '2'
+    df_print: paged
+  html_notebook:
+    toc: yes
+    toc_depth: 2
+bibliography: references.bib
+---
+
+------------------------------------------------------------------------
+
+Choose a suitable dataset from [this](https://github.com/HAN-M3DM-Data-Mining/assignments/tree/master/datasets) folder and train your own kNN model. Follow all the steps from the CRISP-DM model.
+
+# Set-up
+
+Before we can start with this assignment the installation and activation of some packages is needed:
+
+```{r}
+library(tidyverse)
+library(dplyr)
+library(janitor)
+library(googlesheets4)
+library(class)
+library(caret)
+```
+
+# Business Understanding
+
+This assignment is based on the data and story of Georg Hoffmann, Andreas Bietenbeck, Ralf Lichtinghagen and Frank Klawonn [@hoffmann2018].
+
+When laboratory have to make a diagnose, their way of making decisions is based on rules: "If...then...else". This way of diagnosing can be seen as a decision tree. Those treebranches can be seen as established medical guidelines that lead at some point to a diagnosis, like shown in the example down below.
+
+![Example of an established diagnostic pathway for the differential diagnosis of anemia](images/paste-C0185445.png){#hemoglobin}
+
+## Data question
+
+This data problem is about creating a KNN model that can determine in what stage a patient is:
+
+-   C1 = hepatitis without fibrosis or with only minor signs of portal fibrosis
+-   C2 = therapy-relevant fibrosis
+-   C3 = LTX-relevant end stage liver cirrhosis
+
+The data for this study is based on 73 patients (53 males, 22 females), aged 19 to 75 years (median 50), with a proven serological and histopathological diagnosis of hepatitis C. Who have suffer a chronic hepatitis C infection without fibrosis to end stage liver cirrhosis with a need for liver transplantation (LTX).
+
+In this assignment will be tested whether the kNN model can seperate the stages: C1, C2 and C3.
+
+# Data Understanding
+
+As said, this data comes from an open source data set from Georg Hoffmann, Andreas Bietenbeck, Ralf Lichtinghagen and Frank Klawonn [@hoffmann2018]. In the next code is the data written to a table called NewData.
+
+```{r}
+NewData<-read_csv("datasets/KNN-hcvdat0.csv")
+```
+
+## Properties of the data
+
+This section covers the properties of the dataset, without having made any changes to it.
+
+```{r}
+str(NewData)
+```
+
+As we can see above, the dataframe consists of twelve columns that consists of a numeric data and two columns have characteristic data. In total the data set contains 615 observations (rows).
+
+### Data summary
+
+The data set is distinguished by the variable `Category`. So the health-state of the patients is viewed as `Category`. Down below is given that the majority of the data set consists of Blood Donors. It also shows that the youngest person is 19 years old and the oldest person is 77 years.
+
+```{r echo=FALSE, fig.width=50}
+cat("Category by Sex - summary","\n\n")
+NewData %>% 
+  tabyl(Category, Age)
+cat("Age summary","\n\n")
+summary(NewData$Sex)
+  
+```
+
+# Data Preparation
+
+## Creating a new editable data set
+
+At first, we copy the original dataset to a new data frame so if a error is made, the original data won't be messed up.
+
+```{r}
+Raw_data<-NewData
+```
+
+## Tweaking the data
+
+The kNN model is at its best when al values are in the same range. So as we can see down below, the minimum and maximum values can differ a lot and there are also some missing values. This can be solved by normalizing and deleting the observations.
+
+```{r}
+summary(Raw_data)
+```
+
+### Deleting missing values
+
+```{r}
+Cleaned_data_na<-na.omit(Raw_data)
+summary(Cleaned_data_na)
+```
+
+### Exclude columns
+
+For the model is the data input of `Blood Donor` and `suspect Blood Donor` not needed, so they can be removed from the dataset. Also the index column "...1" is not needed. This dataset will be called `Cleaned_data_na_cr`.
+
+```{r}
+Cleaned_data_na_c<-select(Cleaned_data_na, -...1)
+Cleaned_data_na_c_r<-filter(Cleaned_data_na_c, Category!="0=Blood Donor"&Category!="0s=suspect Blood Donor")
+
+Cleaned_data_na_c_r %>%
+  head()
+```
+
+Also we have to change the type `character` to `factor`, otherwise the kNN model won't be able to interpret the data correctly.
+
+```{r}
+Cleaned_data_na_c_r$Category<-factor(Cleaned_data_na_c_r$Category, levels = c("1=Hepatitis", "2=Fibrosis", "3=Cirrhosis"), labels = c("Hepatitis", "Fibrosis", "Cirrhosis"))
+Cleaned_data_na_c_r
+```
+
+### Normalizing the data
+
+So now the data has to be normalized, only this wat the kNN model can work properly. Otherwise some variables could take overhand by having relatively high values. This can be achieved via the normalization function. The normalization function sets the highest value as a "1" and the lowest value as a "0". It then will proportionally scale the original values between the 0 and 1.
+
+#### Setting up the normalize fuction
+
+```{r}
+Normalize <- function(x){return((x-min(x))/(max(x)-min(x)))}
+```
+
+#### Write the normalized values to a new table
+
+```{r}
+num_of_columns <- dim(Cleaned_data_na_c_r)[2] #get number of columns, 2 stands for second value which represents the column count.
+Cleaned_data_na_c_r_n <- sapply(4:num_of_columns, function(x){Normalize(Cleaned_data_na_c_r[,x])})%>% #start the normalization from 4th column
+  as.data.frame() 
+
+```
+
+In this summary is clearly visible that there are no missing values (NA's) and all the values are between "0" and "1".
+
+```{r}
+summary(Cleaned_data_na_c_r_n)
+```
+
+In conclusion, the dataset `Cleaned_data_na_c_r_n`, has no missing values, not needed columns and rows were deleted and all numbers are normalized.
+
+### Create train and test data
+
+As last step, the training and test data sets must be created for the model.
+
+```{r}
+Modeling_dataset<-cbind(select(Cleaned_data_na_c_r, Category),Cleaned_data_na_c_r_n) #merge the two datasets together
+#now devide the dataset into a train and test dataset
+a<-0.75 #percentage to use for training
+#Hepatitis
+Modeling_C1<-filter(Modeling_dataset, Category=="Hepatitis")
+Modeling_trainset_C1<-slice(Modeling_C1,1:round(dim(Modeling_C1)[1]*a))
+Modeling_testset_C1<-slice(Modeling_C1,round(dim(Modeling_C1)[1]*a)+1:dim(Modeling_C2)[1])
+
+#Fibrosis
+Modeling_C2<-filter(Modeling_dataset, Category=="Fibrosis")
+Modeling_trainset_C2<-slice(Modeling_C2,1:round(dim(Modeling_C2)[1]*a))
+Modeling_testset_C2<-slice(Modeling_C2,round(dim(Modeling_C2)[1]*a)+1:dim(Modeling_C1)[1])
+
+#Cirrhosis
+Modeling_C3<-filter(Modeling_dataset, Category=="Cirrhosis")
+Modeling_trainset_C3<-slice(Modeling_C3,1:round(dim(Modeling_C1)[1]*a))
+Modeling_testset_C3<-slice(Modeling_C3,round(dim(Modeling_C1)[1]*a)+1:dim(Modeling_C3)[1])
+
+#the final training sets
+Modeling_trainset_feat<-rbind(select(Modeling_trainset_C1,-Category),select(Modeling_trainset_C2,-Category),select(Modeling_trainset_C3,-Category))
+
+Modeling_trainset_label<-rbind(select(Modeling_trainset_C1,Category),select(Modeling_trainset_C2,Category),select(Modeling_trainset_C3,Category))
+
+#the final testing sets
+Modeling_testset_feat<-rbind(select(Modeling_testset_C1,-Category),select(Modeling_testset_C2,-Category),select(Modeling_testset_C3,-Category))
+
+Modeling_testset_label<-rbind(select(Modeling_testset_C1,Category),select(Modeling_testset_C2,Category),select(Modeling_testset_C3,Category))
+```
+
+# Modeling
+
+The piece of code down below shows how the kNN model is fed with the data. With the "k" can the numbers of neighbours be set. So the model will compare the "k" neighbours to make its decision.
+
+```{r}
+Model_test_pred <- knn(train = as.matrix(Modeling_testset_feat), test = as.matrix(Modeling_trainset_feat), cl = as.matrix(Modeling_testset_label), k = 15)
+
+head(Model_test_pred)
+```
+
+# Evaluation and Deployment
+
+Now it is time to see how the model worked out. As we can see, the model is not flawless. It has a accuracy of 71%, with a 95% certainty interval between 44% and 89%. These values are especially for the medical world not acceptable. So in this case the model should be enhanced to perform better. This can be achieved by providing the model with more samples. This way, the model will be better to train and test itself and produce better results.
+
+The confusion matrix also shows that the kNN model finds it difficult to interpret the Fibrosis right. None of its guesses was correct.
+
+```{r}
+confusionMatrix(Model_test_pred, Modeling_trainset_label[[1]], positive = NULL, dnn = c("Prediction", "false"))
+```
+
+## Suggestion by the reviewer
+
+Line 78 & 82: The summary of category by 'Sex' shows 'Age' instead. This means you switched these two variables in your functions. Solution: ‘tabyl(Category, Sex)’ and ‘summary(NewData$Age)’
+
+Line 116: You failed at excluding the first column by writing ‘-…1’ instead of just ‘-1’
+
+Line 168, 173 & 178: You used the dim of the wrong dataset for Hepatitis (Modeling_C1), Fibrosis (Modeling_C2), and Cirrhosis (Modeling_C3)
+
+Line 196: You switched the places of the training set and test set. Solution: Model_test_pred <- knn(train = as.matrix(Modeling_trainset_feat), test = as.matrix(Modeling_testset_feat), cl = as.matrix(Modeling_trainset_label), k = 15)
+
+Line 196: What is the explanation for using k = 15?
+
+Line 208: You used ‘Modeling_trainset_label’ instead of ‘Modeling_testset_label’, furthermore it should be ‘True’ instead of ‘false’
+
+
+Tip 1: When writing the code for reading the dataset it might be more convienent for the reviewers when the code does not refer to a personal directory.
+Tip 2: The 'Create train and test data' section was hard for me to understand because I saw some things I didn't recognize from the Data Mining Gitbook (Chapter 3). Would like it if your actions were explained some more here :)
